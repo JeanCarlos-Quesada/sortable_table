@@ -19,28 +19,30 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
   const init = () => {
     /*Get the page in the URL*/
     let { page } = queryString.parse(window.location.search);
+    getDataFromJSON([...rows]).then((data) => {
+      let tmp = [...data];
+      let min = 0;
+      let maxPage = 1;
+      /*Get the page and set the min for the splice*/
+      if (page !== undefined) {
+        page = parseInt(page);
+        state.page = page;
+        min = max * page - max;
+      }
 
-    let tmp = [...rows];
-    let min = 0;
-    let maxPage = 1;
-    /*Get the page and set the min for the splice*/
-    if (page !== undefined) {
-      page = parseInt(page);
-      state.page = page;
-      min = max * page - max;
-    }
+      /*Filter the array by page number*/
+      if (max < tmp.length) {
+        tmp = tmp.splice(min, max);
+        maxPage = rows.length / max;
+        maxPage = Math.round(maxPage);
+      }
 
-    /*Filter the array by page number*/
-    if (max < tmp.length) {
-      tmp = tmp.splice(min, max);
-      maxPage = rows.length / max;
-    }
-
-    state.filterRows = tmp;
-    state.rows = [...rows];
-    state.maxPage = maxPage;
-    state.maxPaginator = page ? (page === maxPage ? page : page + 9) : 10;
-    saveState({ ...state });
+      state.filterRows = tmp;
+      state.rows = [...data];
+      state.maxPage = maxPage;
+      state.maxPaginator = page ? (page === maxPage ? page : page + 9) : 10;
+      saveState({ ...state });
+    });
   };
 
   /*Next page on the table*/
@@ -100,10 +102,18 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
   /*Sort items by table column*/
   const sort = (rows, column) => {
     rows = rows.sort((a, b) => {
-      if (a[column] < b[column]) {
+      /*Convert the value in number if is required*/
+      let fistValue = isNumber(a[column])
+        ? parseFloat(a[column].replace(",", "."))
+        : a[column].toUpperCase();
+      let secondValue = isNumber(b[column])
+        ? parseFloat(b[column].replace(",", "."))
+        : b[column].toUpperCase();
+
+      if (fistValue < secondValue) {
         return -1;
       }
-      if (b[column] < a[column]) {
+      if (fistValue < secondValue) {
         return 1;
       }
       return 0;
@@ -115,10 +125,18 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
   /*Reverse sort items by table column*/
   const reverseSort = (rows, column) => {
     rows = rows.sort((a, b) => {
-      if (a[column] > b[column]) {
+      /*Convert the value in number if is required*/
+      let fistValue = isNumber(a[column])
+        ? parseFloat(a[column].replace(",", "."))
+        : a[column].toUpperCase();
+      let secondValue = isNumber(b[column])
+        ? parseFloat(b[column].replace(",", "."))
+        : b[column].toUpperCase();
+
+      if (fistValue > secondValue) {
         return -1;
       }
-      if (b[column] > a[column]) {
+      if (secondValue > fistValue) {
         return 1;
       }
       return 0;
@@ -165,13 +183,42 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
     saveState({ ...state });
   };
 
+  /*Valid if the value is a number*/
+  const isNumber = (value) => {
+    return /^[0-9]+([\.\,])?[0-9]+$/.test(value);
+  };
+
+  const getDataFromJSON = async (jsonArray) => {
+    let result = [];
+    let i = 0;
+    let isArray = false;
+
+    while (i < jsonArray.length && !isArray) {
+      let array = [];
+      if (!Array.isArray(jsonArray[i])) {
+        Object.entries(jsonArray[i]).map((row) => {
+          array.push(row[1]);
+        });
+      } else {
+        isArray = true;
+        result = jsonArray;
+      }
+      result.push(array);
+      i += 1;
+    }
+
+    return result;
+  };
+
   /*Return the ul with the pages number*/
   const pages = () => {
     let currentPage = state.maxPaginator - 9;
     let paginator = [];
 
-    if (currentPage > (state.maxPage - 9)) {
+    if (currentPage > state.maxPage - 9 && state.maxPage > 9) {
       currentPage = state.maxPage - 9;
+    } else if (state.maxPage < 9) {
+      currentPage = 1;
     }
 
     while (state.maxPage >= currentPage && currentPage <= state.maxPaginator) {
