@@ -1,8 +1,16 @@
 import React from "react";
 import queryString from "query-string";
+import Utilities from "./Utilities";
 import "./sort_table.css";
 
-const SortTable = ({ columnsNames, rows, max = 2 }) => {
+const SortTable = ({ columnsNames = null, rows, max = 2, dateFormat }) => {
+  const {
+    getDataFromJSON,
+    getTableHeaderFromJSON,
+    changeURL,
+    sort,
+    reverseSort,
+  } = Utilities();
   const [state, saveState] = React.useState({
     page: 1,
     maxPage: 1,
@@ -11,11 +19,16 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
     filterRows: [],
     lastSortColumn: 0,
   });
+  const [tableHeader, saveTableHeader] = React.useState([]);
 
   React.useEffect(() => {
     init();
   }, []);
 
+  /**
+   * It gets the page number from the URL, then it gets the data from the JSON file, then it filters the
+   * data by page number, then it saves the state.
+   */
   const init = () => {
     /*Get the page in the URL*/
     let { page } = queryString.parse(window.location.search);
@@ -43,9 +56,17 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
       state.maxPaginator = page ? (page === maxPage ? page : page + 9) : 10;
       saveState({ ...state });
     });
+
+    if (columnsNames === null) {
+      getTableHeaderFromJSON([...rows]).then((names) => {
+        saveTableHeader(names);
+      });
+    } else {
+      saveTableHeader(columnsNames);
+    }
   };
 
-  /*Next page on the table*/
+  /*Nex page on the table*/
   const next = () => {
     if (state.page < state.maxPage) {
       let tmp = [...state.rows];
@@ -56,7 +77,9 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
 
       saveState({ ...state });
 
-      changeURL();
+      changeURL(state.page).then(() => {
+        changeMaxPaginator();
+      });
     }
   };
 
@@ -72,19 +95,24 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
 
       saveState({ ...state });
 
-      changeURL();
+      changeURL(state.page).then(() => {
+        changeMaxPaginator();
+      });
     }
   };
 
-  /*Sort table when the user do click in the column title*/
+  /**
+   * It sorts the rows in the table by the column that was clicked on.
+   * @param column - the column that was clicked
+   */
   const onSort = (column) => {
     let tmp = [...state.rows];
 
     /*Calculate the type of sort*/
     tmp =
       state.lastSortColumn === column
-        ? reverseSort(tmp, column)
-        : sort(tmp, column);
+        ? reverseSort(tmp, column, dateFormat)
+        : sort(tmp, column, dateFormat);
 
     state.rows = [...tmp];
 
@@ -97,52 +125,6 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
     state.lastSortColumn = state.lastSortColumn === column ? -1 : column;
     state.filterRows = tmp;
     saveState({ ...state });
-  };
-
-  /*Sort items by table column*/
-  const sort = (rows, column) => {
-    rows = rows.sort((a, b) => {
-      /*Convert the value in number if is required*/
-      let fistValue = isNumber(a[column])
-        ? parseFloat(a[column].replace(",", "."))
-        : a[column].toUpperCase();
-      let secondValue = isNumber(b[column])
-        ? parseFloat(b[column].replace(",", "."))
-        : b[column].toUpperCase();
-
-      if (fistValue < secondValue) {
-        return -1;
-      }
-      if (fistValue < secondValue) {
-        return 1;
-      }
-      return 0;
-    });
-
-    return rows;
-  };
-
-  /*Reverse sort items by table column*/
-  const reverseSort = (rows, column) => {
-    rows = rows.sort((a, b) => {
-      /*Convert the value in number if is required*/
-      let fistValue = isNumber(a[column])
-        ? parseFloat(a[column].replace(",", "."))
-        : a[column].toUpperCase();
-      let secondValue = isNumber(b[column])
-        ? parseFloat(b[column].replace(",", "."))
-        : b[column].toUpperCase();
-
-      if (fistValue > secondValue) {
-        return -1;
-      }
-      if (secondValue > fistValue) {
-        return 1;
-      }
-      return 0;
-    });
-
-    return rows;
   };
 
   /*Change the items on the table by page (when the user do click un the paginator number)*/
@@ -165,17 +147,9 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
 
     saveState({ ...state });
 
-    changeURL();
-  };
-
-  /*Change the url with the current page of the table*/
-  const changeURL = () => {
-    changeMaxPaginator();
-
-    /*Set the new page number to the URL*/
-    let url = window.location.pathname;
-    url = `${url}?page=${state.page}`;
-    window.history.replaceState("", "", url);
+    changeURL(page).then(() => {
+      changeMaxPaginator();
+    });
   };
 
   const changeMaxPaginator = async () => {
@@ -183,34 +157,10 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
     saveState({ ...state });
   };
 
-  /*Valid if the value is a number*/
-  const isNumber = (value) => {
-    return /^[0-9]+([\.\,])?[0-9]+$/.test(value);
-  };
-
-  const getDataFromJSON = async (jsonArray) => {
-    let result = [];
-    let i = 0;
-    let isArray = false;
-
-    while (i < jsonArray.length && !isArray) {
-      let array = [];
-      if (!Array.isArray(jsonArray[i])) {
-        Object.entries(jsonArray[i]).map((row) => {
-          array.push(row[1]);
-        });
-      } else {
-        isArray = true;
-        result = jsonArray;
-      }
-      result.push(array);
-      i += 1;
-    }
-
-    return result;
-  };
-
-  /*Return the ul with the pages number*/
+  /**
+   * It creates a paginator based on the current page and the maximum page
+   * @returns An array of li elements.
+   */
   const pages = () => {
     let currentPage = state.maxPaginator - 9;
     let paginator = [];
@@ -221,20 +171,50 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
       currentPage = 1;
     }
 
+    /* Adding the first page to the paginator. */
+    paginator.push(
+      <li
+        className={`${state.page === 1 && "active"}`}
+        onClick={() => {
+          changePagePaginator(1);
+        }}
+        key={`paginator_page_${1}`}
+      >
+        {1}
+      </li>
+    );
+
+    /* Creating the paginator. */
     while (state.maxPage >= currentPage && currentPage <= state.maxPaginator) {
-      const aux = currentPage;
+      if (currentPage !== 1) {
+        const aux = currentPage;
+        paginator.push(
+          <li
+            className={`${state.page === aux && "active"}`}
+            onClick={() => {
+              changePagePaginator(aux);
+            }}
+            key={`paginator_page_${currentPage}`}
+          >
+            {currentPage}
+          </li>
+        );
+      }
+      currentPage += 1;
+    }
+
+    /* Adding the last page to the paginator. */
+    if (currentPage < state.maxPage) {
       paginator.push(
         <li
-          className={`${state.page == aux && "active"}`}
           onClick={() => {
-            changePagePaginator(aux);
+            changePagePaginator(state.maxPage);
           }}
-          key={`paginator_page_${currentPage}`}
+          key={`paginator_page_${state.maxPage}`}
         >
-          {currentPage}
+          {state.maxPage}
         </li>
       );
-      currentPage += 1;
     }
 
     return <ul>{paginator}</ul>;
@@ -245,7 +225,7 @@ const SortTable = ({ columnsNames, rows, max = 2 }) => {
       <table>
         <thead>
           <tr>
-            {columnsNames.map((item, index) => {
+            {tableHeader.map((item, index) => {
               return (
                 <th
                   onClick={() => {
